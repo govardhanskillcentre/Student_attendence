@@ -303,23 +303,12 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
           <div>
             <h2 style="font-size:18px;font-weight:700;">Admin Login</h2>
-            <p class="muted">Connect your Google Apps Script URL and sign in directly.</p>
+            <p class="muted">Sign in directly with your Admin username and password.</p>
           </div>
-          <span id="sheetStatusPill" class="pill pill-amber">Not Connected</span>
+          <span id="sheetStatusPill" class="pill pill-green">Google Sheet Ready</span>
         </div>
 
         <div id="loginError" class="alert alert-error hidden"></div>
-        <div id="loginSuccess" class="alert alert-ok hidden"></div>
-
-        <div class="field">
-          <label for="scriptUrlInput">Google Apps Script Web App URL</label>
-          <div style="display:flex;gap:8px;">
-            <input id="scriptUrlInput" class="input" type="url" placeholder="https://script.google.com/macros/s/.../exec" />
-            <button id="connectBtn" class="btn btn-outline" type="button" onclick="handleConnectSheet()">Connect</button>
-          </div>
-        </div>
-
-        <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;" />
 
         <form id="adminLoginForm" onsubmit="handleAdminLogin(event)">
           <div class="field">
@@ -394,6 +383,8 @@
     /* =========================================================================
      * STATE & PERSISTENCE (Google Sheets URL + Auto-Login Admin Session + Theme)
      * ========================================================================= */
+    const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykbkEHe17KygNrWKdVUgeAaQgNuanZSD2ntg4AE3DoQClBV-D1WK22IuwwxsktrvJI/exec';
+
     const STORAGE_KEYS = {
       url: 'skilltrack_web_apps_script_url',
       session: 'skilltrack_web_admin_session',
@@ -401,7 +392,7 @@
     };
 
     const state = {
-      url: localStorage.getItem(STORAGE_KEYS.url) || '',
+      url: localStorage.getItem(STORAGE_KEYS.url) || DEFAULT_APPS_SCRIPT_URL,
       session: JSON.parse(localStorage.getItem(STORAGE_KEYS.session) || 'null'),
       tab: 'dashboard',
       instituteName: 'Vocational Training Institute',
@@ -552,52 +543,31 @@
      * ========================================================================= */
     function updateSheetPill(connected, label) {
       const pill = document.getElementById('sheetStatusPill');
-      pill.textContent = label || (connected ? 'Sheet Connected' : 'Not Connected');
+      if (!pill) return;
+      pill.textContent = label || (connected ? 'Google Sheet Live' : 'Offline');
       pill.className = 'pill ' + (connected ? 'pill-green' : 'pill-amber');
     }
 
-    async function handleConnectSheet() {
-      const url = document.getElementById('scriptUrlInput').value.trim();
-      const errBox = document.getElementById('loginError');
-      const okBox = document.getElementById('loginSuccess');
-      errBox.classList.add('hidden');
-      okBox.classList.add('hidden');
-
-      const btn = document.getElementById('connectBtn');
-      btn.disabled = true;
-      btn.textContent = 'Testing...';
+    async function verifyDefaultSheetConnection() {
+      updateSheetPill(true, 'Connecting...');
       try {
-        const data = await callSheetApi('getBootstrapStatus', {}, url);
-        state.url = url;
+        const data = await callSheetApi('getBootstrapStatus', {}, state.url);
         state.instituteName = data.instituteName || 'Vocational Training Institute';
-        localStorage.setItem(STORAGE_KEYS.url, url);
-        document.getElementById('loginInstituteName').textContent = state.instituteName;
+        const titleEl = document.getElementById('loginInstituteName');
+        if (titleEl) titleEl.textContent = state.instituteName;
         updateSheetPill(true, 'Google Sheet Live');
-        okBox.textContent = `Connected to Google Sheet (${data.today || istToday()} IST). You can now sign in as Admin.`;
-        okBox.classList.remove('hidden');
-      } catch (e) {
-        updateSheetPill(false, 'Connection Failed');
-        errBox.textContent = e.message;
-        errBox.classList.remove('hidden');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Connect';
+      } catch {
+        updateSheetPill(false, 'Check Connection');
       }
     }
 
     async function handleAdminLogin(e) {
       e.preventDefault();
-      const url = document.getElementById('scriptUrlInput').value.trim();
+      const url = (state.url || DEFAULT_APPS_SCRIPT_URL).trim();
       const username = document.getElementById('adminUserInput').value.trim();
       const password = document.getElementById('adminPassInput').value;
       const errBox = document.getElementById('loginError');
       errBox.classList.add('hidden');
-
-      if (!isValidAppsScriptUrl(url)) {
-        errBox.textContent = 'Please paste your valid Google Apps Script Web App URL first.';
-        errBox.classList.remove('hidden');
-        return;
-      }
 
       const btn = document.getElementById('loginSubmitBtn');
       btn.disabled = true;
@@ -632,7 +602,6 @@
       localStorage.removeItem(STORAGE_KEYS.session);
       document.getElementById('appShell').classList.add('hidden');
       document.getElementById('loginView').classList.remove('hidden');
-      document.getElementById('scriptUrlInput').value = state.url;
       if (message) {
         const errBox = document.getElementById('loginError');
         errBox.textContent = message;
@@ -1464,6 +1433,7 @@
             </div>
             <div class="row">
               <button class="btn btn-primary" onclick="updateSheetUrlFromSettings()">Save URL</button>
+              <button class="btn btn-outline" onclick="resetDefaultSheetUrl()">Reset Default</button>
               <button class="btn btn-outline" onclick="verifySheetTabs()">Verify 6 Sheet Tabs</button>
             </div>
 
@@ -1517,6 +1487,14 @@
         localStorage.setItem(STORAGE_KEYS.url, url);
         showToast('Google Sheet URL updated.');
       } catch (err) { showToast(err.message, true); }
+    }
+
+    function resetDefaultSheetUrl() {
+      state.url = DEFAULT_APPS_SCRIPT_URL;
+      localStorage.setItem(STORAGE_KEYS.url, DEFAULT_APPS_SCRIPT_URL);
+      const input = document.getElementById('setUrl');
+      if (input) input.value = DEFAULT_APPS_SCRIPT_URL;
+      showToast('Restored default Google Apps Script URL.');
     }
 
     async function verifySheetTabs() {
@@ -1582,12 +1560,13 @@
 
     (function init() {
       applyTheme(localStorage.getItem(STORAGE_KEYS.theme) || 'light');
-      document.getElementById('scriptUrlInput').value = state.url;
-      if (isValidAppsScriptUrl(state.url)) {
-        updateSheetPill(true, 'Saved Sheet URL');
+      if (!isValidAppsScriptUrl(state.url)) {
+        state.url = DEFAULT_APPS_SCRIPT_URL;
       }
-      if (state.session && state.session.role === 'ADMIN' && isValidAppsScriptUrl(state.url)) {
+      if (state.session && state.session.role === 'ADMIN') {
         enterAdminShell();
+      } else {
+        verifyDefaultSheetConnection();
       }
     })();
   </script>
